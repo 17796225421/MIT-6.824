@@ -9,6 +9,10 @@ import (
 )
 
 func atomicWriteFile(filename string, r io.Reader) (err error) {
+	// 1. 传入目标文件名、数据
+	// 2. 将数据写入临时文件
+	// 3. 将临时文件重命名为目标文件名
+
 	// write to a temp file first, then we'll atomically replace the target file
 	// with the temp file.
 	dir, file := filepath.Split(filename)

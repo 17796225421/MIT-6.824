@@ -27,6 +27,16 @@ type KVServer struct {
 }
 
 func (kv *KVServer) Command(request *CommandRequest, response *CommandResponse) {
+	// 1. 传入命令请求，传出命令响应
+	// 2. 如果命令请求的命令类型不是get，且命令请求重复，直接返回
+	// 3. 使用raft的开始，传入命令请求，传出新日志索引、标记是否领导者
+	// 4. 如果标记不是领导者，直接返回
+	// 5. 利用新日志索引从命令响应管道数组找到命令响应管道
+	// 6. select监视命令响应管道和超时管道
+	// 7. 如果命令响应管道，得到命令响应
+	// 8. 如果超时管道，设置命令响应的错误
+	// 9. 创建协程，删除命令响应管道数组的命令响应管道。
+
 	defer DPrintf("{Node %v} processes CommandRequest %v with CommandResponse %v", kv.rf.Me(), request, response)
 	// return result directly without raft layer's participation if request is duplicated
 	kv.mu.RLock()
@@ -91,6 +101,17 @@ func (kv *KVServer) killed() bool {
 
 // a dedicated applier goroutine to apply committed entries to stateMachine, take snapshot and apply snapshot from raft
 func (kv *KVServer) applier() {
+	// 1. 循环select监听应用消息管道
+	// 2. 如果应用消息管道，得到应用消息
+	// 3. 如果应用消息的标记命令有效
+	// 4. 如果应用消息的命令索引小于等于最后一次应用的命令索引，continue
+	// 5. 对于应用消息的命令请求，如果命令请求的请求类型是不get，并且命令请求重复，则命令响应？
+	// 6. 使用kv服务器的应用日志到状态机，传入命令请求，传出命令响应
+	// 7. 如果命令请求的命令类型不是get，更新最后操作数组？
+	// 8. 使用raft的获得状态，传出当前任期和标记是否领导者，如果标记是领导者且命令请求的命令任期等于当前任期，利用命令请求的命令索引从命令响应管道数组找到命令响应管道，将命令响应交给命令响应管道。
+	// 9. ？快照
+	// 10. 如果应用消息的标记命令无效，但应用消息的标记快照有效？
+
 	for kv.killed() == false {
 		select {
 		case message := <-kv.applyCh:
@@ -180,6 +201,9 @@ func (kv *KVServer) removeOutdatedNotifyChan(index int) {
 }
 
 func (kv *KVServer) applyLogToStateMachine(command Command) *CommandResponse {
+	// 1. 传入命令请求，传出命令响应
+	// 2. 根据命令请求的命令类型，分别使用kv状态机的get、put、append，传入命令请求的kv
+
 	var value string
 	var err Err
 	switch command.Op {
@@ -208,6 +232,8 @@ func (kv *KVServer) applyLogToStateMachine(command Command) *CommandResponse {
 // for any long-running work.
 //
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
+	// 1. 创建协程使用kv服务器的引用
+
 	// call labgob.Register on structures you want
 	// Go's RPC library to marshall/unmarshall.
 	labgob.Register(Command{})

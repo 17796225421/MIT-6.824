@@ -18,18 +18,15 @@ type Task struct {
 	fileName  string
 	id        int
 	startTime time.Time
-	status    TaskStatus // 状态：任务是否完成，是否map任务完成，是否reduce任务完成
+	status    TaskStatus
 }
 
-/* 
-Coordinator是无状态的，不用保存worker数组
-需要维护Task数组
-*/
+// A laziest, worker-stateless, channel-based implementation of Coordinator
 type Coordinator struct {
-	files   []string 
+	files   []string
 	nReduce int
-	nMap    int 
-	phase   SchedulePhase // 状态：任务是否完成，是否map任务完成，是否reduce任务完成
+	nMap    int
+	phase   SchedulePhase
 	tasks   []Task
 
 	heartbeatCh chan heartbeatMsg
@@ -63,12 +60,20 @@ func (c *Coordinator) Report(request *ReportRequest, response *ReportResponse) e
 	return nil
 }
 
-// coordinator启动时开启后台goroutine运行schedule
 func (c *Coordinator) schedule() {
+	// 1. 使用调度的初始化map阶段
+	// 2. 循环select监听心跳管道和完成管道
+	// 3. 如果心跳管道，得到心跳消息
+	//   a. 如果心跳消息的阶段是完成，设置心跳消息的心跳响应的任务类型是完成
+	//   b. 使用协调的选择任务，传出心跳消息的心跳响应
+	//   c. 如果心跳消息的阶段是map，使用调度的初始化reduce阶段
+	//   d. 如果心跳消息的阶段是reduce，使用调度的初始化完成阶段
+	// 4. 如果完成管道，得到完成消息
+	// 5. 心跳消息的ok管道唤醒
+
 	c.initMapPhase()
 	for {
 		select {
-		// 监控heartbeatCh和reportCh并做处理
 		case msg := <-c.heartbeatCh:
 			if c.phase == CompletePhase {
 				msg.response.JobType = CompleteJob

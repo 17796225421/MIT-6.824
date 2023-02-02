@@ -74,6 +74,9 @@ func (rf *Raft) GetRaftStateSize() int {
 // see paper's Figure 2 for a description of what should be persistent.
 //
 func (rf *Raft) persist() {
+	// 1. 将当前任期、投票编号、日志数组序列化，得到序列化状态
+	// 2. 将序列化状态拷贝？
+
 	rf.persister.SaveRaftState(rf.encodeState())
 }
 
@@ -99,6 +102,7 @@ func (rf *Raft) readPersist(data []byte) {
 }
 
 func (rf *Raft) encodeState() []byte {
+
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
@@ -156,6 +160,13 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteResponse) {
+	// 1. 传入求票请求，传出求票响应
+	// 2. 如果求票请求的任期小于当前任期，直接返回
+	// 3. 如果求票请求的任期大于当前任期，使用raft的改变状态，传入跟随者，当前任期设置为求票请求的任期，设置投票编号为-1
+	// 4. 如果日志数组不是最新，直接返回
+	// 5. 设置投票编号为求票请求的竞选者编号
+	// 6. 重置选举计时器
+
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
@@ -179,6 +190,14 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 }
 
 func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
+	// 1. 传入附加项请求，传出附加项响应
+	// 2. 如果附加项请求的任期小于当前任期，直接返回
+	// 3. 如果附加项请求的任期大于当前任期，设置当前任期为附加项请求的任期，设置投票编号为-1
+	// 4. 使用raft的改变状态，传入跟随者
+	// 5. 重置选举计时器
+	// 6. 如果附加项请求的prevlogindex小于日志数组第一条日志的索引，直接返回
+	// 7. matchlog？
+
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
@@ -308,6 +327,16 @@ func (rf *Raft) sendInstallSnapshot(server int, request *InstallSnapshotRequest,
 }
 
 func (rf *Raft) StartElection() {
+	// 1. 构造求票请求
+	// 2. 票数等于1，投票编号为自己的编号
+	// 3. 使用raft的持久化
+	// 4. 遍历rpc客户端数组，如果遍历rpc客户端等于当前rpc客户端，continue
+	// 5. 创建协程，传入遍历rpc客户端
+	// 6. 构造求票响应
+	// 7. 如果当前任期等于求票请求的任期并且当前状态是竞选者
+	// 8. 如果求票响应的投票编号不是-1，票数++，如果票数大于rpc客户端数组一半，使用raft的改变状态，传入领导者，使用raft的广播心跳
+	// 9. 如果当前任期小于求票响应的任期，使用raft的改变状态，传入跟随者，设置当前任期为求票响应的任期，设置投票编号为-1，使用raft的持久化
+
 	request := rf.genRequestVoteRequest()
 	DPrintf("{Node %v} starts election with RequestVoteRequest %v", rf.me, request)
 	// use Closure
@@ -360,6 +389,10 @@ func (rf *Raft) BroadcastHeartbeat(isHeartBeat bool) {
 }
 
 func (rf *Raft) replicateOneRound(peer int) {
+	// 1. 如果当前状态不是领导者，直接返回
+	// 2. 遍历rpc客户端数组，遍历rpc客户端等于当前rpc客户端，continue
+	// 3. ？
+
 	rf.mu.RLock()
 	if rf.state != StateLeader {
 		rf.mu.RUnlock()
@@ -466,6 +499,11 @@ func (rf *Raft) handleInstallSnapshotResponse(peer int, request *InstallSnapshot
 }
 
 func (rf *Raft) ChangeState(state NodeState) {
+	// 1. 传入目标状态
+	// 2. 如果当前状态等于目标状态，直接返回
+	// 3. 如果目标状态是跟随者，心跳计时器停止，选举计时器重置
+	// 4. 如果目标状态是领导者，心跳计时器停止，选举计时器重置，对matchIndex数组设置为0，nextIndex数组设置为日志数组最后一条日志的索引+1
+
 	if rf.state == state {
 		return
 	}
@@ -551,6 +589,13 @@ func (rf *Raft) needReplicating(peer int) bool {
 	return rf.state == StateLeader && rf.matchIndex[peer] < rf.getLastLog().Index
 }
 
+// used by upper layer to detect whether there are any logs in current term
+func (rf *Raft) HasLogInCurrentTerm() bool {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	return rf.getLastLog().Term == rf.currentTerm
+}
+
 //
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
@@ -600,10 +645,13 @@ func (rf *Raft) Me() int {
 	return rf.me
 }
 
-// ticker协程进行两件事：
-// 1.超时发起选举。
-// 2.超时发送心跳
+// The ticker go routine starts a new election if this peer hasn't received
+// heartbeats recently.
 func (rf *Raft) ticker() {
+	// 1. 循环监听选举计时器管道和心跳计时器管道
+	// 2. 如果选举计时器管道，使用raft的改变状态，传入竞选者，当前任期++，使用raft的开始选举，重置选举计时器
+	// 3. 如果心跳计时器管道，如果当前状态是领导者，使用raft的广播心跳，重置心跳计时器
+
 	for rf.killed() == false {
 		select {
 		case <-rf.electionTimer.C:
@@ -624,7 +672,7 @@ func (rf *Raft) ticker() {
 	}
 }
 
-// applier协程将日志应用到状态机
+// a dedicated applier goroutine to guarantee that each log will be push into applyCh exactly once, ensuring that service's applying entries and raft's committing entries can be parallel
 func (rf *Raft) applier() {
 	for rf.killed() == false {
 		rf.mu.Lock()
@@ -640,6 +688,7 @@ func (rf *Raft) applier() {
 			rf.applyCh <- ApplyMsg{
 				CommandValid: true,
 				Command:      entry.Command,
+				CommandTerm:  entry.Term,
 				CommandIndex: entry.Index,
 			}
 		}
@@ -652,7 +701,6 @@ func (rf *Raft) applier() {
 	}
 }
 
-// replicator协程，管理其余服务器的状态
 func (rf *Raft) replicator(peer int) {
 	rf.replicatorCond[peer].L.Lock()
 	defer rf.replicatorCond[peer].L.Unlock()

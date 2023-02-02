@@ -27,26 +27,27 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 		commandId: 0,
 	}
 }
-//
-// fetch the current value for a key.
-// returns "" if the key does not exist.
-// keeps trying forever in the face of all other errors.
-//
-// you can send an RPC with code like this:
-// ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
-//
-// the types of args and reply (including whether they are pointers)
-// must match the declared types of the RPC handler function's
-// arguments. and reply must be passed as a pointer.
-//
+
 func (ck *Clerk) Get(key string) string {
+	// 1. 传入k
+	// 2. 构造命令请求
+	// 3. 使用kv客户端的命令，传入命令请求，传出v
+
 	return ck.Command(&CommandRequest{Key: key, Op: OpGet})
 }
 
 func (ck *Clerk) Put(key string, value string) {
+	// 1. 传入kv
+	// 2. 构造命令请求
+	// 3. 使用kv客户端的命令，传入命令请求
+
 	ck.Command(&CommandRequest{Key: key, Value: value, Op: OpPut})
 }
 func (ck *Clerk) Append(key string, value string) {
+	// 1. 传入kv
+	// 2. 构造命令请求
+	// 3. 使用kv客户端的命令，传入命令请求
+
 	ck.Command(&CommandRequest{Key: key, Value: value, Op: OpAppend})
 }
 
@@ -60,6 +61,10 @@ func (ck *Clerk) Append(key string, value string) {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) Command(request *CommandRequest) string {
+	// 1. 传入命令请求
+	// 2. 遍历rpc客户端数组，找到第一个？
+	// 3. 命令请求的命令编号++，返回命令响应的v
+
 	request.ClientId, request.CommandId = ck.clientId, ck.commandId
 	for {
 		var response CommandResponse
